@@ -1,0 +1,372 @@
+CREATE A node.js APPLICATION
+
+# Step 1: Update the system
+sudo yum update -y
+
+# Step 2: Install dependencies for Node.js
+sudo yum install -y gcc-c++ make
+
+# Step 3: Install Node.js and npm (version 18 in this case)
+curl -sL https://rpm.nodesource.com/setup_18.x | sudo bash -
+sudo yum install -y nodejs
+
+# Step 4: Verify installation
+node -v
+npm -v
+
+# Step 5: Install MySQL client (optional)
+sudo yum install -y mysql
+
+# Step 6: Create your project directory and initialize
+mkdir fargate-app
+cd fargate-app
+npm init -y
+
+# Step 7: Install Express and MySQL libraries
+npm install express mysql
+
+
+ Application Code:
+
+const express = require('express');
+const mysql = require('mysql');
+const app = express();
+
+// Create a connection to the MySQL database
+const db = mysql.createConnection({
+    host: process.env.DB_HOST,        // Database host (usually the RDS endpoint)
+    user: process.env.DB_USER,        // Database username
+    password: process.env.DB_PASS,    // Database password
+    database: process.env.DB_NAME     // Database name
+});
+
+// Establish the connection to the database
+db.connect((err) => {
+    if (err) {
+        throw err; // If there is an error, it will be thrown
+    }
+    console.log('Connected to database'); // Log connection success
+});
+
+// Define a route for the root endpoint
+app.get('/', (req, res) => {
+    res.send('App running on ECS Fargate with RDS!'); // Respond with a message
+});
+
+// Start the server on port 3000
+app.listen(3000, () => {
+    console.log('Server running on port 3000'); // Log when server is running
+});
+
+#Create Dockerfile
+touch Dockerfile
+
+Add the following contents to the Dockerfile:
+
+FROM node:14
+WORKDIR /usr/src/app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["node", "server.js"]
+
+#Build Docker Image Locally
+
+docker build -t fargate-app .
+
+#Test the application locally by running:
+
+docker run -p 3000:3000 fargate-app
+
+
+
+Creating an ECR Repository :
+
+aws ecr create-repository --repository-name fargate-app
+
+Authenticate Docker to ECR :
+
+aws ecr get-login-password --region <your-region> | docker login --username AWS --password-stdin <aws-account-id>.dkr.ecr.<region>.amazonaws.com
+
+Tag and Push Docker Image to ECR :
+
+docker tag fargate-app:latest <aws-account-id>.dkr.ecr.<region>.amazonaws.com/fargate-app:latest
+docker push <aws-account-id>.dkr.ecr.<region>.amazonaws.com/fargate-app:latest
+
+
+
+ Launching an RDS Database :
+
+Go to AWS Management Console > RDS > Create Database.
+Choose MySQL as the engine.
+Select the free-tier option and configure the database name, username, and password.
+
+
+Note Down RDS Endpoint :
+
+Once the RDS instance is available, note the Endpoint URL, which will be used in the application code.
+
+Setting Up ECS Fargate :
+
+Go to ECS Console > Task Definitions > Create New Task Definition.
+Choose Fargate as the launch type.
+Add a container and specify the Docker image URL from ECR.
+
+Set Environment Variables :
+
+Add the following environment variables for connecting to the RDS database:
+
+DB_HOST: Your RDS endpoint.
+DB_USER: Database username.
+DB_PASS: Database password.
+DB_NAME: Database name.
+
+
+Create an ECS Cluster :
+
+Go to ECS Console > Clusters > Create Cluster.
+Choose Networking Only for Fargate.
+Name your cluster
+
+Create a Service :
+
+Go to ECS Cluster > Create Service.
+Choose the task definition created earlier.
+Configure the service with desired tasks, load balancers, and VPC settings.
+
+
+Creating a CI/CD Pipeline Using CodePipeline :
+
+automate the deployment process using AWS CodePipeline.
+
+Create an IAM Role for CodePipeline :
+
+#CodePipeline permissions:
+
+AWSCodePipelineFullAccess
+ECR permissions (for interacting with Amazon ECR):
+
+AmazonEC2ContainerRegistryFullAccess
+ECS permissions (for interacting with Amazon ECS):
+
+AmazonECS_FullAccess
+CodeBuild permissions (for triggering builds using CodeBuild):
+
+AWSCodeBuildDeveloperAccess
+
+
+BuildSpec for CodeBuild :
+
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - echo "Installing dependencies"
+      - npm install
+  pre_build:
+    commands:
+      - echo "Logging into Amazon ECR"
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+  build:
+    commands:
+      - echo "Building Docker image"
+      - docker build -t fargate-app .
+      - docker tag fargate-app:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/fargate-app:latest
+  post_build:
+    commands:
+      - echo "Pushing Docker image to ECR"
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/fargate-app:latest
+artifacts:
+  files:
+    - "**/*"
+
+
+Creating the Pipeline :
+
+
+Go to CodePipeline > Create Pipeline.
+Set up the Source Stage with your GitHub repository.
+Add a Build Stage using AWS CodeBuild.
+Add a Deploy Stage to update your ECS Fargate service with the new image.
+
+
+Testing the Deployment :
+
+#Push Code to GitHub
+
+git add .
+git commit -m "Initial commit for ECS Fargate app"
+git push origin main
+
+
+Verify Pipeline Execution :
+
+Once the code is pushed, the CodePipeline will be triggered, building the Docker image, pushing it to ECR, and deploying it to ECS Fargate.
+
+
+Monitoring and Logging with CloudWatch  :
+
+#ECS Fargate Logging
+
+AWS Fargate integrates with CloudWatch Logs, allowing you to monitor application logs directly. Check the logs by going to CloudWatch
+
+
+Set up CloudWatch Alarms :
+
+Go to CloudWatch Console > Alarms.
+Create alarms for CPU, memory usage, or log error patterns to ensure proper monitoring.
+
+
+Conclusion  :
+
+In this project, you’ve built a complete DevOps pipeline on AWS, deploying a Dockerized Node.js application using ECS Fargate, RDS, and ECR. You’ve also automated the deployment process using CodePipeline and CodeBuild, integrating robust monitoring via CloudWatch. This setup is scalable, resilient, and adheres to modern DevOps practices.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
